@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>nexp</title>
+    <style>
+
+@font-face { font-family: "Yu Gothic"; src: local("Yu Gothic Medium"), local("YuGothic-Medium"); }
+@font-face { font-family: "Yu Gothic"; src: local("Yu Gothic Bold")  , local("YuGothic-Bold")  ; font-weight: bold; }
+*, ::before, ::after { box-sizing: border-box; }
+
+:root {
+  --colour-base: #000;
+  --font-family-sans-serif: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, YuGothic, "Yu Gothic", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-size-base: 16px;
+}
+
+html {
+  overflow-y: scroll;
+  font-family: var(--font-family-sans-serif);
+  text-decoration-skip-ink: none;
+  -webkit-text-decoration-skip: objects;
+  color: var(--colour-base);
+  font-size: var(--font-size-base);
+  background: #fff;
+  cursor: default;
+}
+
+body {
+  margin: 1rem;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+a                 { color: #00f; }
+a:hover, a:active { color: #f00; }
+
+h1, p, ul {
+  margin: 0 0 1rem;
+}
+
+h1 {
+  font-size: 1.2rem;
+}
+
+input, textarea {
+  margin: 0;
+  color: var(--colour-base);
+  font-family: var(--font-family-sans-serif);
+}
+
+textarea {
+  font-family: "Noto Sans Mono CJK JP", Osaka-mono, "MS Gothic", "Courier New", monospace;
+}
+
+input:not([type="file"]), textarea {
+  font-size: var(--font-size-base);
+}
+
+[type="button"], [type="file"]::-webkit-file-upload-button, [type="text"], [type="password"], textarea {
+  border: 1px solid #999;
+  border-radius: 2px;
+  padding: .25rem .5rem;
+}
+
+[type="button"], [type="file"]::-webkit-file-upload-button {
+  padding-right: 1rem;
+  padding-left : 1rem;
+  background: #eee;
+  cursor: pointer;
+}
+
+[type="button"]:hover, [type="button"]:focus, [type="file"]::-webkit-file-upload-button:hover, [type="file"]::-webkit-file-upload-button:focus {
+  background: #e0e0e0;
+}
+
+[type="file"] {
+  cursor: pointer;
+}
+
+textarea {
+  overflow-y: scroll;
+  -webkit-overflow-scrolling: touch;
+  display: block;
+  width: 100%;
+  min-height: 7rem;
+  word-break: normal;  /* No Wrap */
+  word-wrap: normal;
+  white-space: pre;
+  resize: vertical;
+}
+
+.container {
+  display: none;  /* For Init */
+  margin: 0 auto;
+  max-width: 960px;
+}
+
+.init-hidden {
+  display: none;
+}
+
+.text-error {
+  color: #f00;
+  font-weight: bold;
+}
+
+#ls-files {
+  padding-left: 0;
+}
+
+#ls-files li {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto auto;  /* Name, Edit, Copy, Rename, Move, Remove */
+}
+
+#ls-files li > span:first-child {
+  display: inline-block;
+  padding-top: .25rem;
+  padding-bottom: .25rem;
+}
+
+#ls-files li:not(:last-child) {
+  margin-bottom: .15rem;
+}
+
+#ls-files li [type="button"] {
+  margin-left: .25rem;
+  padding: .1rem .5rem;
+}
+
+#login-controls,
+.ls-controls {
+  display: grid;
+  grid-template-columns: 1fr 5rem;
+  column-gap: .25rem;
+  margin: 0 0 .25rem;
+}
+
+#ls-logout {
+  grid-column-start: 2;
+  grid-column-end: 3;
+}
+
+#edit-success {
+  color: #096;
+  font-weight: bold;
+}
+
+#edit-controls {
+  display: grid;
+  grid-template-columns: auto auto;
+}
+
+#edit-controls > span:last-child {
+  text-align: right;
+}
+
+    </style>
+    <script>
+
+document.addEventListener('DOMContentLoaded', () => {
+  const API_URL = {
+    ls      : './nexp-ls.js.cgi',
+    open    : './nexp-open.js.cgi',
+    upload  : './nexp-upload.rb',
+    mkdir   : './nexp-mkdir.js.cgi',
+    touch   : './nexp-touch.js.cgi',
+    copy    : './nexp-copy.js.cgi',
+    rename  : './nexp-rename.js.cgi',
+    move    : './nexp-move.js.cgi',
+    remove  : './nexp-remove.js.cgi',
+    editOpen: './nexp-edit-open.js.cgi',
+    editSave: './nexp-edit-save.js.cgi'
+  };
+  
+  // ================================================================================
+  
+  // Add Event Listeners
+  $('login-submit').addEventListener('click', login);
+  $('ls-logout').addEventListener('click', logout);
+  $('ls-upload-submit').addEventListener('click', upload);
+  $('ls-mkdir-submit').addEventListener('click', mkdir);
+  $('ls-touch-submit').addEventListener('click', touch);
+  $('edit-back').addEventListener('click', editBack);
+  $('edit-save').addEventListener('click', editSave);
+  
+  // Initialize
+  let credential = '';
+  const savedCredential = localStorage.getItem('credential');
+  if(savedCredential) {
+    console.log('Saved Credential Detected');
+    $('login-credential').value = credential = savedCredential;
+    login();
+  }
+  else {
+    show('container-login');
+  }
+  return;
+  
+  // Page Funcions
+  
+  function login() {
+    hide('login-error');
+    $('login-error').innerText = '';
+    credential = $('login-credential').value;
+    fetch(API_URL.ls, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: '.'
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Login : Success :', result);
+        localStorage.setItem('credential', credential);
+        hide('container-login');
+        $('login-credential').value = '';
+        ls(result.cwd, result.files);
+      })
+      .catch(error => {
+        console.error('Login : Error :', error);
+        localStorage.removeItem('credential');
+        $('login-error').innerText = error;
+        show('login-error');
+        show('container-login');
+      });
+  }
+  
+  function logout() {
+    console.log('Logout');
+    localStorage.removeItem('credential');
+    hide('container-ls');
+    show('container-login');
+  }
+  
+  function ls(cwd, files) {
+    console.log('Ls :', cwd, files);
+    $('ls-cwd').innerText = `Index Of : ${cwd}/`;
+    $('ls-cwd').dataset.cwd = cwd;
+    
+    let lsFiles = (cwd === '.') ? '' : `<li><span><a href="${cwd}/.." class="ls-cd" data-directory-path="${cwd}/..">../</a></span></li>`;
+    if(!files.length) {
+      lsFiles += '<li><span>(No Files)</span></li>';
+    }
+    else {
+      lsFiles += files.map(file => {
+        let html = '<li>';
+        if(file.isDirectory) {
+          html += `<span><a href="${cwd}/${file.name}" class="ls-cd" data-directory-path="${cwd}/${file.name}">${file.name}/</a></span>`;
+        }
+        else {
+          html += `<span><a href="${cwd}/${file.name}" class="ls-open" data-file-path="${cwd}/${file.name}">${file.name}</a></span>`;
+          if(file.isEditable) html += `<span><input type="button" class="ls-edit" data-file-path="${cwd}/${file.name}" value="Edit"></span>`;
+          html += `<span><input type="button" class="ls-copy" data-current-file-name="${file.name}" value="Copy"></span>`;
+        }
+        html += `<span><input type="button" class="ls-rename" data-current-file-name="${file.name}" value="Rename"></span>`
+             +  `<span><input type="button" class="ls-move" data-file-name="${file.name}" value="Move"></span>`
+             +  `<span><input type="button" class="ls-remove" data-file-name="${file.name}" value="Remove"></span>`
+             +  '</li>';
+        return html;
+      }).join('');
+    }
+    $('ls-files').innerHTML = lsFiles;
+    
+    $$('.ls-cd').forEach(element => element.addEventListener('click', event => {
+      event.preventDefault();
+      cd(element.dataset.directoryPath);  // data-directory-path はキャメルケースになる
+    }));
+    $$('.ls-open').forEach(element => element.addEventListener('click', event => {
+      event.preventDefault();
+      open(element.dataset.filePath);
+    }));
+    $$('.ls-edit').forEach(element => element.addEventListener('click', () => editStart(element.dataset.filePath)));
+    $$('.ls-copy').forEach(element => element.addEventListener('click', () => copy(element.dataset.currentFileName)));
+    $$('.ls-rename').forEach(element => element.addEventListener('click', () => rename(element.dataset.currentFileName)));
+    $$('.ls-move').forEach(element => element.addEventListener('click', () => move(element.dataset.fileName)));
+    $$('.ls-remove').forEach(element => element.addEventListener('click', () => remove(element.dataset.fileName)));
+    
+    hide('container-edit');  // For Edit Back
+    show('container-ls');
+  }
+  
+  function cd(directoryPath) {
+    console.log('Cd :', directoryPath);
+    hide('ls-error');
+    $('ls-error').innerText = $('ls-upload-file').value = $('ls-mkdir-directory-name').value = $('ls-touch-file-name').value = '';  // Reset All Inputs
+    fetch(API_URL.ls, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: directoryPath
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Cd : Success :', result);
+        ls(result.cwd, result.files);
+      })
+      .catch(error => {
+        console.error('Cd : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function open(filePath) {
+    console.log('Open :', filePath);  // 名前付きの新規ウィンドウを開き、そのウィンドウを `target` とした隠しフォームから POST する
+    $('ls-credential').value = credential;
+    $('ls-file-path').value = filePath;
+    $('ls-form-open').target = 'open-window';
+    $('ls-form-open').action = API_URL.open;
+    window.open('about:blank', 'open-window', '');
+    $('ls-form-open').submit();
+  }
+  
+  function upload() {
+    console.log('Upload');
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    const uploadFiles = $('ls-upload-file').files;
+    if(uploadFiles == null || !uploadFiles.length) {
+      $('ls-error').innerText = 'Please Select Upload File';
+      show('ls-error');
+      return;
+    }
+    const cwd = $('ls-cwd').dataset.cwd;
+    const formData = new FormData();
+    formData.append('credential', credential);
+    formData.append('directory-path', cwd);
+    formData.append('file', uploadFiles[0]);
+    fetch(API_URL.upload, {
+      method: 'POST',
+      body: formData
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Upload : Success :', result);
+        $('ls-upload-file').value = '';  // Reset File
+        cd(cwd);  // Reload
+      })
+      .catch(error => {
+        console.error('Upload : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function mkdir() {
+    console.log('Mkdir');
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    const directoryName = $('ls-mkdir-directory-name').value;
+    if(!directoryName) {
+      $('ls-error').innerText = 'Please Input Directory Name';
+      show('ls-error');
+      return;
+    }
+    const cwd = $('ls-cwd').dataset.cwd;
+    fetch(API_URL.mkdir, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: cwd,
+        directoryName: directoryName
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Mkdir : Success :', result);
+        $('ls-mkdir-directory-name').value = '';
+        cd(cwd);
+      })
+      .catch(error => {
+        console.error('Mkdir : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function touch() {
+    console.log('Touch');
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    const fileName = $('ls-touch-file-name').value;
+    if(!fileName) {
+      $('ls-error').innerText = 'Please Input File Name';
+      show('ls-error');
+      return;
+    }
+    const cwd = $('ls-cwd').dataset.cwd;
+    fetch(API_URL.touch, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: cwd,
+        fileName: fileName
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Touch : Success :', result);
+        $('ls-touch-file-name').value = '';
+        cd(cwd);
+      })
+      .catch(error => {
+        console.error('Touch : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function copy(currentFileName) {
+    console.log('Copy :', currentFileName);
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    const newFileName = prompt('New File Name?', '');
+    if(!newFileName) return alert('Please Input New File Name');
+    const cwd = $('ls-cwd').dataset.cwd;
+    fetch(API_URL.copy, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: cwd,
+        currentFileName: currentFileName,
+        newFileName: newFileName
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Copy : Success :', result);
+        cd(cwd);
+      })
+      .catch(error => {
+        console.error('Copy : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function rename(currentFileName) {
+    console.log('Rename :', currentFileName);
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    const newFileName = prompt('New File Name?', '');
+    if(!newFileName) return alert('Please Input New File Name');
+    const cwd = $('ls-cwd').dataset.cwd;
+    fetch(API_URL.rename, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: cwd,
+        currentFileName: currentFileName,
+        newFileName: newFileName
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Rename : Success :', result);
+        cd(cwd);
+      })
+      .catch(error => {
+        console.error('Rename : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function move(fileName) {
+    console.log('Move :', fileName);
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    const newDirectoryPath = prompt('New Directory Path? (Relative Path From Current Directory Path)', '');
+    if(!newDirectoryPath) return alert('Please Input New Directory Path');
+    const cwd = $('ls-cwd').dataset.cwd;
+    fetch(API_URL.move, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        currentDirectoryPath: cwd,
+        fileName: fileName,
+        newDirectoryPath: newDirectoryPath
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Move : Success :', result);
+        cd(cwd);
+      })
+      .catch(error => {
+        console.error('Move : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function remove(fileName) {
+    console.log('Remove :', fileName);
+    hide('ls-error');
+    $('ls-error').innerText = '';
+    if(!confirm('Remove This File?')) return;
+    const cwd = $('ls-cwd').dataset.cwd;
+    fetch(API_URL.remove, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        directoryPath: cwd,
+        fileName: fileName
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Remove : Success :', result);
+        cd(cwd);
+      })
+      .catch(error => {
+        console.error('Remove : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function editStart(filePath) {
+    console.log('Edit Start :', filePath);
+    fetch(API_URL.editOpen, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        filePath: filePath
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Edit Start : Success :', result);
+        hide('container-ls');
+        $('edit-file-path').innerText = `Edit : ${filePath}`;
+        $('edit-file-path').dataset.filePath = filePath;
+        $('edit-editor').value = $('edit-editor').dataset.originalValue = result.text;
+        $('edit-error').innerText = '';
+        hide('edit-error');
+        hide('edit-success');
+        show('container-edit');
+      })
+      .catch(error => {
+        console.error('Edit Start : Error :', error);
+        $('ls-error').innerText = error;
+        show('ls-error');
+      });
+  }
+  
+  function editBack() {
+    console.log('Edit Back');
+    const cwd = $('ls-cwd').dataset.cwd;
+    if($('edit-editor').value === $('edit-editor').dataset.originalValue || confirm('Do You Want To Back Without Save File?')) return cd(cwd);
+  }
+  
+  function editSave() {
+    console.log('Edit Save');
+    hide('edit-error');
+    $('edit-error').innerText = '';
+    
+    const content = $('edit-editor').value;
+    if(content === $('edit-editor').dataset.originalValue) {
+      $('edit-error').innerText = 'There Are No Changes';
+      show('edit-error');
+      return;
+    }
+    
+    fetch(API_URL.editSave, {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential,
+        filePath: $('edit-file-path').dataset.filePath,
+        content: content
+      })
+    })
+      .then(response => response.json())
+      .then(result => {
+        if(result.error) throw new Error(result.error);
+        console.log('Edit Save : Success :', result);
+        $('edit-editor').dataset.originalValue = content;
+        show('edit-success');
+        setTimeout(() => hide('edit-success'), 1000);
+      })
+      .catch(error => {
+        console.error('Edit Save : Error :', error);
+        $('edit-error').innerText = error;
+        show('edit-error');
+      });
+  }
+  
+  // Utils
+  
+  function $(id) {
+    return document.getElementById(id);
+  }
+  
+  function $$(selector) {
+    return document.querySelectorAll(selector);
+  }
+  
+  function show(id) {
+    $(id).style.display = 'block';
+  }
+  
+  function hide(id) {
+    $(id).style.display = 'none';
+  }
+});
+
+    </script>
+  </head>
+  <body>
+
+<div id="container-login" class="container">
+  <h1>Login</h1>
+  <p id="login-error" class="init-hidden text-error"></p>
+  <p id="login-controls">
+    <input type="password" id="login-credential" value="">
+    <input type="button"   id="login-submit"     value="Login">
+  </p>
+</div>
+
+<div id="container-ls" class="container">
+  <h1 id="ls-cwd" data-cwd=""></h1>
+  <p id="ls-error" class="init-hidden text-error"></p>
+  <ul id="ls-files"></ul>
+  <form id="ls-form-open" method="POST" target="open-window" action="." class="init-hidden">
+    <input type="hidden" name="credential" id="ls-credential" value="">
+    <input type="hidden" name="file-path"  id="ls-file-path"  value="">
+  </form>
+  <p class="ls-controls">
+    <input type="file"   id="ls-upload-file">
+    <input type="button" id="ls-upload-submit" value="Upload">
+  </p>
+  <p class="ls-controls">
+    <input type="text"   id="ls-mkdir-directory-name" value="">
+    <input type="button" id="ls-mkdir-submit"         value="Mkdir">
+  </p>
+  <p class="ls-controls">
+    <input type="text"   id="ls-touch-file-name" value="">
+    <input type="button" id="ls-touch-submit"    value="Touch">
+  </p>
+  <p class="ls-controls">
+    <input type="button" id="ls-logout" value="Logout">
+  </p>
+</div>
+
+<div id="container-edit" class="container">
+  <h1 id="edit-file-path" data-file-path=""></h1>
+  <p id="edit-error" class="init-hidden text-error"></p>
+  <p id="edit-success" class="init-hidden">Saved.</p>
+  <p id="edit-controls">
+    <span><input type="button" id="edit-back" value="Back"></span>
+    <span><input type="button" id="edit-save" value="Save"></span>
+  </p>
+  <p><textarea id="edit-editor" data-original-value=""></textarea></p>
+</div>
+
+  </body>
+</html>
